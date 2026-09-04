@@ -5,3 +5,11 @@ dist/
 .DS_Store
 coverage/
 graphify-out/
+rust/target/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+src/harness_lens/_native.*.so
+src/harness_lens/_native.*.pyd
