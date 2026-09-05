@@ -577,8 +577,8 @@ mod tests {
 
         assert_eq!(report.sources.len(), 1);
         assert_eq!(report.sources[0].bytes, 19);
-        assert_eq!(report.plugin_executions.len(), 3);
-        assert_eq!(report.scores.len(), 3);
+        assert_eq!(report.plugin_executions.len(), 4);
+        assert_eq!(report.scores.len(), 4);
         assert!(report.completeness.complete);
         fs::remove_dir_all(root).unwrap();
     }
@@ -622,6 +622,25 @@ mod tests {
             fs::read_to_string(root.join("AGENTS.md")).unwrap(),
             "Always run tests.\n"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scan_exposes_redundant_instruction_findings() {
+        let root = test_root();
+        fs::write(
+            root.join("AGENTS.md"),
+            "Try to avoid using branch names like codex.\nDo not use branches like codex.\n",
+        )
+        .unwrap();
+
+        let report = Scanner::new()
+            .scan(&root, &HarnessLensConfig::default())
+            .unwrap();
+
+        assert!(report.findings.iter().any(|finding| {
+            finding.rule_id == "HL030" && finding.line == Some(2) && finding.span.is_some()
+        }));
         fs::remove_dir_all(root).unwrap();
     }
 
