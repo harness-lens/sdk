@@ -35,7 +35,7 @@ dependencies = [
 [[package]]
 name = "harness-lens-core"
 version = "0.0.1"
-source = "git+https://github.com/harness-lens/core.git?rev=855598e5ef83b464aa799f8515d3a9170ac88abc#855598e5ef83b464aa799f8515d3a9170ac88abc"
+source = "git+https://github.com/harness-lens/core.git?rev=4b8f248b33e6110e581388703046160de56f82f9#4b8f248b33e6110e581388703046160de56f82f9"
 dependencies = [
  "serde",
  "serde_yaml",

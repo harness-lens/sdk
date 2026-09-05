@@ -3,6 +3,10 @@
 
 # harness-lens
 
+The native scanner includes `HL032` exact duplicate line/paragraph warnings,
+both source locations, and normalization evidence. It also exposes source
+budgets and caller-configured input-cost estimates through `EvaluationConfig`.
+
 Reusable Rust SDK for Harness Lens. It combines the generic engine with a safe
 filesystem adapter, repository-local configuration resolution, and first-party
 deterministic plugins.
