@@ -580,14 +580,17 @@ fn source_kind(path: &Path) -> HarnessSourceKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_root() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("harness-lens-{nonce}"));
+        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("harness-lens-{nonce}-{counter}"));
         fs::create_dir_all(&root).unwrap();
         root
     }
@@ -677,8 +680,8 @@ mod tests {
 
         assert_eq!(report.sources.len(), 1);
         assert_eq!(report.sources[0].bytes, 19);
-        assert_eq!(report.plugin_executions.len(), 4);
-        assert_eq!(report.scores.len(), 4);
+        assert_eq!(report.plugin_executions.len(), 7);
+        assert_eq!(report.scores.len(), 7);
         assert!(report.completeness.complete);
         fs::remove_dir_all(root).unwrap();
     }
