@@ -630,7 +630,7 @@ mod tests {
         let root = test_root();
         fs::write(
             root.join("AGENTS.md"),
-            "Try to avoid using branch names like codex.\nDo not use branches like codex.\n",
+            "Try to avoid using branch names like codex, do not use branches like codex.\n",
         )
         .unwrap();
 
@@ -639,7 +639,7 @@ mod tests {
             .unwrap();
 
         assert!(report.findings.iter().any(|finding| {
-            finding.rule_id == "HL030" && finding.line == Some(2) && finding.span.is_some()
+            finding.rule_id == "HL030" && finding.line == Some(1) && finding.span.is_some()
         }));
         fs::remove_dir_all(root).unwrap();
     }

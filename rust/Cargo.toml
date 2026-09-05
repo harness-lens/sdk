@@ -22,7 +22,7 @@ homepage = "https://github.com/harness-lens/sdk"
 [workspace.dependencies]
 harness-lens = { version = "0.0.1", path = "crates/harness-lens" }
 harness-lens-config = { version = "0.0.1", path = "crates/harness-lens-config" }
-harness-lens-core = { version = "0.0.1", git = "https://github.com/harness-lens/core.git", rev = "c0037f67c4976f117872701ce87597628e544ffc" }
+harness-lens-core = { version = "0.0.1", git = "https://github.com/harness-lens/core.git", rev = "f22aacfc28c05260c3a603bc9fa38b4017f875a4" }
 pyo3 = { version = "0.29.2", features = ["abi3-py310"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0"
