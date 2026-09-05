@@ -355,6 +355,9 @@ pub fn is_harness_path(path: &Path, config: &DiscoveryConfig) -> bool {
     }
 
     let normalized_path = normalized(path);
+    if matches_provider_layout(&normalized_path) {
+        return true;
+    }
     if config
         .path_suffixes
         .iter()
@@ -368,6 +371,29 @@ pub fn is_harness_path(path: &Path, config: &DiscoveryConfig) -> bool {
         .directory_suffixes
         .iter()
         .any(|suffix| contains_directory_suffix(&parent, suffix))
+}
+
+fn matches_provider_layout(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let extension = name.rsplit_once('.').map(|(_, extension)| extension);
+    if matches!(name, "AGENTS.override.md" | "CLAUDE.local.md" | "SKILL.md")
+        || has_path_suffix(path, ".codex/config.toml")
+    {
+        return true;
+    }
+
+    let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
+    let in_directory = |directory| contains_directory_suffix(parent, directory);
+
+    (in_directory(".agents/skills") && name == "SKILL.md")
+        || (in_directory(".claude/skills") && name == "SKILL.md")
+        || (in_directory(".claude/agents") && extension == Some("md"))
+        || (in_directory(".claude/rules") && matches!(extension, Some("md" | "mdc")))
+        || (in_directory(".github/agents") && name.ends_with(".agent.md"))
+        || (in_directory(".github/instructions") && name.ends_with(".instructions.md"))
+        || (in_directory(".codex/agents") && extension == Some("toml"))
+        || (in_directory(".codex/rules") && extension == Some("rules"))
+        || (in_directory(".agents/rules") && matches!(extension, Some("md" | "mdc" | "rules")))
 }
 
 fn has_path_suffix(path: &str, suffix: &str) -> bool {
@@ -520,12 +546,33 @@ fn normalize_reasons(completeness: &mut ScanCompleteness) {
 }
 
 fn source_kind(path: &Path) -> HarnessSourceKind {
+    let normalized_path = normalized(path);
     match path.file_name().and_then(|name| name.to_str()) {
-        Some("AGENTS.md") => HarnessSourceKind::Agents,
-        Some("CLAUDE.md" | "GEMINI.md" | "copilot-instructions.md") => {
+        Some("AGENTS.md" | "AGENTS.override.md") => HarnessSourceKind::Agents,
+        Some("SKILL.md") => HarnessSourceKind::Skills,
+        Some("CLAUDE.md" | "CLAUDE.local.md" | "GEMINI.md" | "copilot-instructions.md") => {
             HarnessSourceKind::Instructions
         }
-        _ if normalized(path).contains(".cursor/rules/") => HarnessSourceKind::Rules,
+        Some("config.toml") if has_path_suffix(&normalized_path, ".codex/config.toml") => {
+            HarnessSourceKind::Configuration
+        }
+        Some(name)
+            if (normalized_path.contains(".claude/agents/") && name.ends_with(".md"))
+                || (normalized_path.contains(".github/agents/") && name.ends_with(".agent.md"))
+                || (normalized_path.contains(".codex/agents/") && name.ends_with(".toml")) =>
+        {
+            HarnessSourceKind::Agents
+        }
+        Some(name)
+            if normalized_path.contains(".cursor/rules/")
+                || normalized_path.contains(".claude/rules/")
+                || normalized_path.contains(".agents/rules/")
+                || normalized_path.contains(".codex/rules/")
+                || (normalized_path.contains(".github/instructions/")
+                    && name.ends_with(".instructions.md")) =>
+        {
+            HarnessSourceKind::Rules
+        }
         _ => HarnessSourceKind::Other,
     }
 }
@@ -564,6 +611,59 @@ mod tests {
             [".cursor/rules/languages/rust.md", "AGENTS.md"]
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discovers_provider_agent_skill_rule_and_config_assets() {
+        let root = test_root();
+        let files = [
+            "AGENTS.override.md",
+            "CLAUDE.local.md",
+            ".agents/skills/review/SKILL.md",
+            ".agents/rules/team.md",
+            ".claude/agents/reviewer.md",
+            ".claude/rules/rust.md",
+            ".github/agents/helper.agent.md",
+            ".github/instructions/rust.instructions.md",
+            ".codex/config.toml",
+            ".codex/agents/reviewer.toml",
+            ".codex/rules/default.rules",
+        ];
+        for file in files {
+            let path = root.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "test").unwrap();
+        }
+        fs::write(root.join(".agents/skills/review/helper.py"), "ignored").unwrap();
+        fs::write(root.join(".codex/agents/notes.txt"), "ignored").unwrap();
+
+        let found = discover(&root, &HarnessLensConfig::default()).unwrap();
+        let mut expected = files.map(str::to_owned).to_vec();
+        expected.sort();
+
+        assert_eq!(
+            found
+                .iter()
+                .map(|path| normalized(path))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn classifies_provider_assets() {
+        for (path, expected) in [
+            (".agents/skills/review/SKILL.md", HarnessSourceKind::Skills),
+            (".claude/agents/reviewer.md", HarnessSourceKind::Agents),
+            (".github/agents/helper.agent.md", HarnessSourceKind::Agents),
+            (".codex/agents/reviewer.toml", HarnessSourceKind::Agents),
+            (".claude/rules/rust.md", HarnessSourceKind::Rules),
+            (".codex/rules/default.rules", HarnessSourceKind::Rules),
+            (".codex/config.toml", HarnessSourceKind::Configuration),
+        ] {
+            assert_eq!(source_kind(Path::new(path)), expected, "{path}");
+        }
     }
 
     #[test]
