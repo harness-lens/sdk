@@ -483,6 +483,7 @@ fn make_source(path: PathBuf, content: String) -> HarnessSource {
 
 fn load_finding(path: &Path, message: String) -> Finding {
     Finding {
+        related: Vec::new(),
         severity: Severity::Warning,
         rule_id: "HL006".to_owned(),
         message: "Harness source could not be loaded safely".to_owned(),
@@ -680,8 +681,8 @@ mod tests {
 
         assert_eq!(report.sources.len(), 1);
         assert_eq!(report.sources[0].bytes, 19);
-        assert_eq!(report.plugin_executions.len(), 7);
-        assert_eq!(report.scores.len(), 7);
+        assert_eq!(report.plugin_executions.len(), 9);
+        assert_eq!(report.scores.len(), 9);
         assert!(report.completeness.complete);
         fs::remove_dir_all(root).unwrap();
     }
@@ -724,6 +725,36 @@ mod tests {
         assert_eq!(
             fs::read_to_string(root.join("AGENTS.md")).unwrap(),
             "Always run tests.\n"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scan_exposes_exact_duplicate_locations_and_cost() {
+        let root = test_root();
+        let line = "adoption, rejection, assumptions, and source links.";
+        fs::write(root.join("AGENTS.md"), format!("{line}\n{line}\n")).unwrap();
+        let mut config = HarnessLensConfig::default();
+        config.evaluation.input_cost_per_million_tokens = Some(2.5);
+        config.evaluation.invocations = 100;
+
+        let report = Scanner::new().scan(&root, &config).unwrap();
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.rule_id == "HL032")
+            .unwrap();
+        assert_eq!(finding.severity, Severity::Warning);
+        assert_eq!(finding.path.as_deref(), Some(Path::new("AGENTS.md")));
+        assert_eq!(finding.line, Some(2));
+        assert_eq!(finding.related[0].path, PathBuf::from("AGENTS.md"));
+        assert_eq!(finding.related[0].line, Some(1));
+        assert!(finding.evidence.as_deref().unwrap().contains("assumption:"));
+        assert!(
+            report
+                .metrics
+                .iter()
+                .any(|m| m.name == "harness.input_cost_total" && m.value > 0.0)
         );
         fs::remove_dir_all(root).unwrap();
     }
