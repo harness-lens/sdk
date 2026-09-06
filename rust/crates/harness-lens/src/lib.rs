@@ -4,11 +4,13 @@
 #![doc = include_str!("../README.md")]
 
 mod filesystem;
+pub mod providers;
 
 pub use filesystem::{
     DiscoveryResult, ScanError, Scanner, discover, discover_detailed, is_harness_path,
 };
 pub use harness_lens_config::{ConfigError, DEFAULT_CONFIG_FILE, load_for_root};
+pub use harness_lens_core::lexical;
 pub use harness_lens_core::{
     AnalysisEngine, AnalysisReport, ConfidenceEstimate, DiscoveryConfig, EvaluationConfig, Finding,
     FindingLocation, HarnessLensConfig, HarnessSource, HarnessSourceKind, IncompleteReason,

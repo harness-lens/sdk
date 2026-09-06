@@ -32,6 +32,13 @@ The Rust workspace pins the exact reference-core revision from
 transport-neutral Harness Score adapter seam; concrete network and authentication
 behavior stays outside the analysis engine.
 
+Rust provider services expose a compiled-in catalog, safe local status, and
+declarative install previews. CodeBurn remains optional and external. Detection
+requires selected trusted live mode; snapshot and off modes launch no process.
+Installation requires explicit confirmation of the exact generated plan and
+rechecks trust immediately before invoking fixed npm arguments without a shell.
+See [provider services](docs/provider-services.md).
+
 ## Ecosystem
 
 - [Core](https://github.com/harness-lens/core)
