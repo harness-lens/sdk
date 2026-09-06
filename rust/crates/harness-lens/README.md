@@ -16,6 +16,11 @@ complete evidence-bearing report. Add analyzers through `Scanner::register_plugi
 `discover_detailed()` exposes incomplete-scan reasons, and
 `Scanner::scan_with_overrides()` safely analyzes unsaved editor buffers.
 
+Reports include bounded content-free inclusion edges for local inline Markdown
+links. Each edge labels heuristic method and assumption; unresolved, ignored,
+out-of-root, cyclic, and bounded states remain visible without loading or
+serializing referenced source content.
+
 ## License
 
 Early namespace-reservation versions used BSD-3-Clause. The official functional

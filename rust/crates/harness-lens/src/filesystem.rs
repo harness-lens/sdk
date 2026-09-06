@@ -9,10 +9,13 @@ use std::path::{Component, Path, PathBuf};
 
 use harness_lens_core::{
     AnalysisEngine, AnalysisReport, DiscoveryConfig, Finding, HarnessLensConfig, HarnessSource,
-    HarnessSourceKind, IncompleteReason, Plugin, RegistrationError, ScanCompleteness, Severity,
+    HarnessSourceKind, InclusionEdge, InclusionStatus, IncompleteReason, Plugin, ProvenanceLink,
+    ProvenanceRelationship, RegistrationError, ScanCompleteness, ScoreMethod, Severity, TextSpan,
 };
 
 const FILESYSTEM_SOURCE: &str = "harness-lens.filesystem";
+const MAX_REFERENCES_PER_SOURCE: usize = 256;
+const MAX_REFERENCE_EDGES: usize = 50_000;
 
 /// Filesystem discovery or loading failure.
 #[derive(Debug)]
@@ -117,10 +120,209 @@ impl Scanner {
         discovery.completeness.reasons.extend(load_reasons);
         normalize_reasons(&mut discovery.completeness);
 
+        let (reference_edges, reference_reasons) =
+            inclusion_edges(&root, &sources, &config.discovery);
+        discovery.completeness.reasons.extend(reference_reasons);
+        normalize_reasons(&mut discovery.completeness);
+
         let mut report = self.engine.analyze(root, sources, findings, config);
+        for edge in &reference_edges {
+            if !matches!(
+                edge.status,
+                InclusionStatus::Resolved | InclusionStatus::Cycle
+            ) {
+                continue;
+            }
+            let Some(record) = report
+                .sources
+                .iter_mut()
+                .find(|source| source.path == edge.target)
+            else {
+                continue;
+            };
+            let Some(source) = edge.source.clone() else {
+                continue;
+            };
+            record.provenance.push(ProvenanceLink {
+                relationship: ProvenanceRelationship::Reference,
+                path: source,
+                span: edge.span,
+                method: edge.method,
+            });
+        }
+        report.inclusions.extend(reference_edges);
         report.completeness = discovery.completeness;
         Ok(report)
     }
+}
+
+fn inclusion_edges(
+    root: &Path,
+    sources: &[HarnessSource],
+    config: &DiscoveryConfig,
+) -> (Vec<InclusionEdge>, Vec<IncompleteReason>) {
+    let mut edges = Vec::new();
+    let mut reasons = Vec::new();
+    'sources: for source in sources {
+        let references = markdown_references(&source.content);
+        if references.len() > MAX_REFERENCES_PER_SOURCE {
+            reasons.push(incomplete_reason("reference-edge-limit", &source.path));
+        }
+        for reference in references.into_iter().take(MAX_REFERENCES_PER_SOURCE) {
+            if edges.len() == MAX_REFERENCE_EDGES {
+                reasons.push(incomplete_reason("reference-edge-limit", &source.path));
+                break 'sources;
+            }
+            let (target, status) = resolve_reference(root, &source.path, &reference.target, config);
+            edges.push(InclusionEdge {
+                source: Some(source.path.clone()),
+                target,
+                depth: 1,
+                status,
+                span: Some(reference.span),
+                method: ScoreMethod::Heuristic,
+                assumptions: vec![
+                    "Local inline Markdown links are inclusion candidates".to_owned(),
+                ],
+            });
+        }
+    }
+
+    let adjacency = edges
+        .iter()
+        .filter(|edge| edge.status == InclusionStatus::Resolved)
+        .filter_map(|edge| Some((edge.source.clone()?, edge.target.clone())))
+        .fold(
+            BTreeMap::<PathBuf, Vec<PathBuf>>::new(),
+            |mut map, (source, target)| {
+                map.entry(source).or_default().push(target);
+                map
+            },
+        );
+    for edge in &mut edges {
+        if edge.status != InclusionStatus::Resolved {
+            continue;
+        }
+        let Some(source) = edge.source.as_deref() else {
+            continue;
+        };
+        if path_reaches(&edge.target, source, &adjacency, &mut BTreeSet::new()) {
+            edge.status = InclusionStatus::Cycle;
+        }
+    }
+    edges.sort_by(|left, right| {
+        left.source
+            .cmp(&right.source)
+            .then_with(|| left.target.cmp(&right.target))
+            .then_with(|| {
+                left.span
+                    .map(|span| span.start)
+                    .cmp(&right.span.map(|span| span.start))
+            })
+    });
+    (edges, reasons)
+}
+
+fn path_reaches(
+    current: &Path,
+    target: &Path,
+    adjacency: &BTreeMap<PathBuf, Vec<PathBuf>>,
+    visited: &mut BTreeSet<PathBuf>,
+) -> bool {
+    if current == target {
+        return true;
+    }
+    if !visited.insert(current.to_owned()) {
+        return false;
+    }
+    adjacency.get(current).is_some_and(|next| {
+        next.iter()
+            .any(|path| path_reaches(path, target, adjacency, visited))
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MarkdownReference {
+    target: String,
+    span: TextSpan,
+}
+
+fn markdown_references(content: &str) -> Vec<MarkdownReference> {
+    let mut references = Vec::new();
+    let mut search_from = 0;
+    while let Some(offset) = content[search_from..].find("](") {
+        let start = search_from + offset + 2;
+        let Some(close) = content[start..].find(')') else {
+            break;
+        };
+        let end = start + close;
+        let raw = content[start..end].trim();
+        let raw = raw
+            .strip_prefix('<')
+            .and_then(|value| value.strip_suffix('>'))
+            .unwrap_or(raw);
+        let target = raw.split('#').next().unwrap_or("").trim();
+        if !target.is_empty()
+            && !target.starts_with('#')
+            && !target.starts_with("//")
+            && !target.contains("://")
+        {
+            let target_start = content[start..end]
+                .find(target)
+                .map_or(start, |offset| start + offset);
+            references.push(MarkdownReference {
+                target: target.to_owned(),
+                span: TextSpan {
+                    start: target_start,
+                    end: target_start + target.len(),
+                },
+            });
+        }
+        search_from = end + 1;
+    }
+    references
+}
+
+fn resolve_reference(
+    root: &Path,
+    source: &Path,
+    target: &str,
+    config: &DiscoveryConfig,
+) -> (PathBuf, InclusionStatus) {
+    let target_path = Path::new(target);
+    if target_path.is_absolute() {
+        return (target_path.to_owned(), InclusionStatus::OutOfRoot);
+    }
+    let mut resolved = source.parent().unwrap_or_else(|| Path::new("")).to_owned();
+    for component in target_path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => resolved.push(part),
+            Component::ParentDir => {
+                if !resolved.pop() {
+                    return (PathBuf::from(target), InclusionStatus::OutOfRoot);
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return (PathBuf::from(target), InclusionStatus::OutOfRoot);
+            }
+        }
+    }
+    if resolved.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        config
+            .ignored_directories
+            .iter()
+            .any(|ignored| ignored == &name)
+    }) {
+        return (resolved, InclusionStatus::Ignored);
+    }
+    let status = if root.join(&resolved).exists() {
+        InclusionStatus::Resolved
+    } else {
+        InclusionStatus::Missing
+    };
+    (resolved, status)
 }
 
 /// Deterministic discovery output, including conditions that limited coverage.
@@ -725,6 +927,75 @@ mod tests {
         assert_eq!(
             fs::read_to_string(root.join("AGENTS.md")).unwrap(),
             "Always run tests.\n"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reference_graph_exposes_cycle_missing_ignored_and_out_of_root_edges() {
+        let root = test_root();
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("target/ignored.md"), "ignored").unwrap();
+        fs::write(
+            root.join("AGENTS.md"),
+            "[claude](CLAUDE.md) [missing](missing.md) [ignored](target/ignored.md) [outside](../outside.md)\n",
+        )
+        .unwrap();
+        fs::write(root.join("CLAUDE.md"), "[agents](AGENTS.md)\n").unwrap();
+
+        let report = Scanner::new()
+            .scan(&root, &HarnessLensConfig::default())
+            .unwrap();
+        let references = report
+            .inclusions
+            .iter()
+            .filter(|edge| edge.source.is_some())
+            .collect::<Vec<_>>();
+
+        assert!(references.iter().any(|edge| {
+            edge.target == Path::new("CLAUDE.md") && edge.status == InclusionStatus::Cycle
+        }));
+        assert!(references.iter().any(|edge| {
+            edge.target == Path::new("missing.md") && edge.status == InclusionStatus::Missing
+        }));
+        assert!(references.iter().any(|edge| {
+            edge.target == Path::new("target/ignored.md") && edge.status == InclusionStatus::Ignored
+        }));
+        assert!(references.iter().any(|edge| {
+            edge.target == Path::new("../outside.md") && edge.status == InclusionStatus::OutOfRoot
+        }));
+        assert!(report.sources.iter().any(|source| {
+            source.path == Path::new("CLAUDE.md")
+                && source
+                    .provenance
+                    .iter()
+                    .any(|link| link.relationship == ProvenanceRelationship::Reference)
+        }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsaved_overlay_updates_reference_edges_without_rewriting_disk() {
+        let root = test_root();
+        fs::write(root.join("AGENTS.md"), "No references.\n").unwrap();
+        fs::write(root.join("CLAUDE.md"), "Instructions.\n").unwrap();
+        let overrides = BTreeMap::from([(
+            PathBuf::from("AGENTS.md"),
+            "[Claude](CLAUDE.md)\n".to_owned(),
+        )]);
+
+        let report = Scanner::new()
+            .scan_with_overrides(&root, &HarnessLensConfig::default(), &overrides)
+            .unwrap();
+
+        assert!(report.inclusions.iter().any(|edge| {
+            edge.source.as_deref() == Some(Path::new("AGENTS.md"))
+                && edge.target == Path::new("CLAUDE.md")
+                && edge.status == InclusionStatus::Resolved
+        }));
+        assert_eq!(
+            fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+            "No references.\n"
         );
         fs::remove_dir_all(root).unwrap();
     }
