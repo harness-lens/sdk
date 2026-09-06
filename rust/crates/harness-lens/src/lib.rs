@@ -16,8 +16,8 @@ pub use harness_lens_core::{
     FindingLocation, HarnessLensConfig, HarnessSource, HarnessSourceKind, IncompleteReason,
     IntegrationConfig, IntegrationError, Metric, Plugin, PluginConfig, PluginContext, PluginError,
     PluginExecution, PluginExecutionStatus, PluginMetadata, PluginOutput, RegistrationError,
-    ReportSink, ScanCompleteness, ScanSummary, Score, ScoreCategory, ScoreError, ScoreMethod,
-    ScoreSummary, Severity, SourceRecord, TextSpan, statistics,
+    ReportSink, RuntimeMode, ScanCompleteness, ScanSummary, Score, ScoreCategory, ScoreError,
+    ScoreMethod, ScoreSummary, Severity, SourceRecord, TextSpan, statistics,
 };
 
 /// Published Harness Lens namespace-bootstrap version.
@@ -30,5 +30,6 @@ mod tests {
     #[test]
     fn facade_exposes_core_summary() {
         assert!(ScanSummary::default().is_empty());
+        assert_eq!(RuntimeMode::default(), RuntimeMode::Off);
     }
 }
