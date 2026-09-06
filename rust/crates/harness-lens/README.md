@@ -21,6 +21,11 @@ links. Each edge labels heuristic method and assumption; unresolved, ignored,
 out-of-root, cyclic, and bounded states remain visible without loading or
 serializing referenced source content.
 
+`lexical` exposes Core's separate bounded lexical report. `providers` exposes
+the fixed Native and CodeBurn catalog plus local detection and installation
+boundaries. Optional processes stay off by default and cannot run for untrusted
+or virtual workspaces.
+
 ## License
 
 Early namespace-reservation versions used BSD-3-Clause. The official functional
