@@ -1,6 +1,8 @@
 > SPDX-License-Identifier: MPL-2.0
 > Copyright © 2026 Cristian Camargo Filho
 
+![Harness Lens](assets/harness-lens-banner.png)
+
 # @harness-lens/sdk
 
 Stable embedding facade for Harness Lens. This repository owns the SDK layer in
