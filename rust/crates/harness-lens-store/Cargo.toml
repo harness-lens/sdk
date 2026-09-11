@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright © 2026 Cristian Camargo Filho
+
+[package]
+name = "harness-lens-store"
+description = "Bounded local persistence for content-safe Harness Lens reports"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["harness", "agents", "reports", "storage"]
+publish = true
+
+[dependencies]
+harness-lens-core.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+harness-lens.workspace = true
+
+[lints]
+workspace = true

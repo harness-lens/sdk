@@ -16,10 +16,11 @@ Never commit npm tokens.
 
 ## Rust
 
-Publish `harness-lens-config` and
-`harness-lens-adapter-harness-score` before `harness-lens`. The manifests retain
-version requirements so packaged crates resolve through crates.io; repository
-builds additionally pin the core Git revision for reproducibility.
+Publish `harness-lens-config`, `harness-lens-adapter-harness-score`, and
+`harness-lens-store` before any crate that consumes them. Publish
+`harness-lens` after config. The manifests retain version requirements so
+packaged crates resolve through crates.io; repository builds additionally pin
+the core Git revision for reproducibility.
 
 ## Python
 
