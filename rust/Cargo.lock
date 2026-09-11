@@ -10,7 +10,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "harness-lens"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "harness-lens-config",
  "harness-lens-core",
@@ -18,7 +18,7 @@ dependencies = [
 
 [[package]]
 name = "harness-lens-adapter-harness-score"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "harness-lens-core",
  "serde",
@@ -26,7 +26,7 @@ dependencies = [
 
 [[package]]
 name = "harness-lens-config"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "harness-lens-core",
  "toml 1.1.5+spec-1.1.0",
@@ -34,8 +34,8 @@ dependencies = [
 
 [[package]]
 name = "harness-lens-core"
-version = "0.0.1"
-source = "git+https://github.com/harness-lens/core.git?rev=cec4902041544ef4377e97412cd9f79a9a3897b7#cec4902041544ef4377e97412cd9f79a9a3897b7"
+version = "0.0.2"
+source = "git+https://github.com/harness-lens/core.git?rev=2a8e916fcf73cbeb1792358b5726e23472792721#2a8e916fcf73cbeb1792358b5726e23472792721"
 dependencies = [
  "serde",
  "serde_json",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "harness-lens-python"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "harness-lens",
  "pyo3",
