@@ -56,6 +56,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-lens-store"
+version = "0.0.1"
+dependencies = [
+ "harness-lens",
+ "harness-lens-core",
+ "serde_json",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
