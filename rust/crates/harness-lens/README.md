@@ -28,10 +28,15 @@ or virtual workspaces.
 
 `trace` parses a deny-by-default, content-safe action snapshot and normalizes
 missing, redacted, duplicate, unordered, partial, and bounded records without
-coercing unknown measurements to zero. `observed_flow` derives only original
-adjacent transitions. It applies deterministic filters, recalculates declared
-denominators, layers repeated logical actions to expose cycles, and emits the
-versioned Core relationship-graph contract.
+coercing unknown measurements to zero. Optional per-turn token usage remains
+provider-neutral and records whether the source measured or estimated it.
+`observed_flow` derives only original adjacent transitions. It applies
+deterministic filters, recalculates declared denominators, layers repeated
+logical actions to expose cycles, and emits the versioned Core
+relationship-graph contract. `build_observed_flow_projection` also emits a
+bounded, statistically labelled turn timeline aligned with visible graph
+layers. Its sample size counts only turns carrying token evidence; absent token
+evidence remains an explicit gap.
 
 ## License
 

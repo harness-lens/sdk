@@ -10,10 +10,15 @@ use std::fmt;
 
 use harness_lens_core::{
     ActionIdentity, ActionObservation, ActionTrace, CompletenessReason, EvidenceCompleteness,
-    GraphAvailability, GraphEdge, GraphFilters, GraphKind, GraphLimits, GraphNode, GraphNodeKind,
-    GraphProvenance, GraphRelationship, ObservationWindow, RELATIONSHIP_GRAPH_SCHEMA_VERSION,
-    RelationshipGraph, RuntimeObservationStatus, ScoreMethod, WeightedEdgeMetric,
+    EvidenceLocation, GraphAvailability, GraphEdge, GraphFilters, GraphKind, GraphLimits,
+    GraphNode, GraphNodeKind, GraphProvenance, GraphRelationship, ObservationWindow, ObservedCost,
+    ObservedTokenUsage, RELATIONSHIP_GRAPH_SCHEMA_VERSION, RelationshipGraph,
+    RuntimeObservationStatus, ScoreMethod, WeightedEdgeMetric,
 };
+use serde::Serialize;
+
+/// Hard ceiling for turns serialized beside one observed-flow graph.
+pub const ABSOLUTE_MAX_FLOW_TURNS: usize = 10_000;
 
 /// Supported single-unit width calculations.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -78,6 +83,65 @@ impl Default for ObservedFlowOptions {
             metric: FlowMetric::Transitions,
         }
     }
+}
+
+/// One content-safe ordered turn available to a timeline renderer.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ObservedFlowTurn {
+    /// Stable observation identity.
+    pub id: String,
+    /// Stable session identity.
+    pub session_id: String,
+    /// Provider-supplied order within the session.
+    pub sequence: u64,
+    /// Zero-based layer matching the Sankey projection.
+    pub layer: usize,
+    /// Normalized timestamp, when supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observed_at: Option<String>,
+    /// Content-safe action identity.
+    pub action: ActionIdentity,
+    /// Sanitized terminal status.
+    pub status: RuntimeObservationStatus,
+    /// Measured or explicitly estimated token usage, when supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<ObservedTokenUsage>,
+    /// Attributed cost, when supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<ObservedCost>,
+    /// Safe source navigation location, when supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<EvidenceLocation>,
+}
+
+/// Bounded token evidence aligned with one observed-flow projection.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ObservedTokenTimeline {
+    /// Deterministic projection over statistically sampled runtime evidence.
+    pub method: ScoreMethod,
+    /// Whether any visible turn carries token evidence.
+    pub availability: GraphAvailability,
+    /// Missing and truncated evidence reasons.
+    pub completeness: EvidenceCompleteness,
+    /// Maximum turns serialized in this response.
+    pub max_turns: usize,
+    /// Matching turns before the response bound.
+    pub total_turns: usize,
+    /// Visible turns carrying token evidence.
+    pub sample_size: usize,
+    /// Fixed unit for every token bar.
+    pub unit: String,
+    /// Canonically ordered visible turns, including explicit token gaps.
+    pub turns: Vec<ObservedFlowTurn>,
+}
+
+/// Observed graph and its aligned bounded per-turn token projection.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ObservedFlowProjection {
+    /// Aggregated transition graph.
+    pub graph: RelationshipGraph,
+    /// Ordered turn-level token evidence.
+    pub token_timeline: ObservedTokenTimeline,
 }
 
 /// Failure to build a valid bounded observed-flow graph.
@@ -372,6 +436,172 @@ pub fn build_observed_flow(
     Ok(graph)
 }
 
+/// Builds an observed-flow graph and aligned bounded per-turn token timeline.
+pub fn build_observed_flow_projection(
+    trace: &ActionTrace,
+    options: &ObservedFlowOptions,
+    max_turns: usize,
+) -> Result<ObservedFlowProjection, FlowBuildError> {
+    if max_turns == 0 || max_turns > ABSOLUTE_MAX_FLOW_TURNS {
+        return Err(FlowBuildError::InvalidOptions);
+    }
+    let graph = build_observed_flow(trace, options)?;
+    let token_timeline = build_token_timeline(trace, options, &graph, max_turns)?;
+    Ok(ObservedFlowProjection {
+        graph,
+        token_timeline,
+    })
+}
+
+fn build_token_timeline(
+    trace: &ActionTrace,
+    options: &ObservedFlowOptions,
+    graph: &RelationshipGraph,
+    max_turns: usize,
+) -> Result<ObservedTokenTimeline, FlowBuildError> {
+    trace
+        .validate(trace.observations.len().max(1))
+        .map_err(|_| FlowBuildError::InvalidTrace)?;
+    let mut reasons = graph
+        .completeness
+        .reasons
+        .iter()
+        .map(|reason| (reason.code.clone(), reason.count.unwrap_or(1)))
+        .collect::<BTreeMap<_, _>>();
+    let mut grouped = BTreeMap::<&str, Vec<&ActionObservation>>::new();
+    for observation in &trace.observations {
+        grouped
+            .entry(&observation.session_id)
+            .or_default()
+            .push(observation);
+    }
+    let selected_turn_ids = selected_turn_ids(&grouped, options, graph);
+    let mut turns = Vec::new();
+    for observations in grouped.values() {
+        for (layer, observation) in observations.iter().enumerate() {
+            if !selected_turn_ids.contains(observation.id.as_str()) {
+                continue;
+            }
+            turns.push(ObservedFlowTurn {
+                id: observation.id.clone(),
+                session_id: observation.session_id.clone(),
+                sequence: observation.sequence,
+                layer,
+                observed_at: observation.observed_at.clone(),
+                action: observation.action.clone(),
+                status: observation.status,
+                token_usage: observation.token_usage,
+                cost: observation.cost.clone(),
+                location: observation.location.clone(),
+            });
+        }
+    }
+    let total_turns = turns.len();
+    let missing_tokens = turns
+        .iter()
+        .filter(|turn| turn.token_usage.is_none())
+        .count();
+    if missing_tokens > 0 {
+        *reasons.entry("missing_token_usage".to_owned()).or_default() += missing_tokens;
+    }
+    if turns.len() > max_turns {
+        let omitted = turns.len() - max_turns;
+        turns.truncate(max_turns);
+        *reasons.entry("truncated_turns".to_owned()).or_default() += omitted;
+    }
+    let sample_size = turns
+        .iter()
+        .filter(|turn| turn.token_usage.is_some())
+        .count();
+    let availability = if sample_size > 0 {
+        GraphAvailability::Ready
+    } else if total_turns == 0 && graph.availability != GraphAvailability::Unavailable {
+        GraphAvailability::Empty
+    } else {
+        GraphAvailability::Unavailable
+    };
+    let completeness_reasons = reasons
+        .into_iter()
+        .map(|(code, count)| CompletenessReason {
+            code,
+            count: Some(count),
+        })
+        .collect::<Vec<_>>();
+    Ok(ObservedTokenTimeline {
+        method: ScoreMethod::Statistical,
+        availability,
+        completeness: EvidenceCompleteness {
+            complete: completeness_reasons.is_empty(),
+            reasons: completeness_reasons,
+        },
+        max_turns,
+        total_turns,
+        sample_size,
+        unit: "tokens".to_owned(),
+        turns,
+    })
+}
+
+fn selected_turn_ids<'a>(
+    grouped: &BTreeMap<&str, Vec<&'a ActionObservation>>,
+    options: &ObservedFlowOptions,
+    graph: &RelationshipGraph,
+) -> BTreeSet<&'a str> {
+    let graph_nodes = graph
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            node.layer
+                .map(|layer| (node.id.as_str(), (layer, node.logical_id.as_str())))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let selected_edges = graph
+        .edges
+        .iter()
+        .filter_map(|edge| {
+            let source = graph_nodes.get(edge.source.as_str())?;
+            let target = graph_nodes.get(edge.target.as_str())?;
+            Some((source.0, source.1, target.0, target.1))
+        })
+        .collect::<BTreeSet<_>>();
+    let mut selected = BTreeSet::new();
+    let mut discarded_reasons = BTreeMap::new();
+    for observations in grouped.values() {
+        for (layer, pair) in observations.windows(2).enumerate() {
+            let source = pair[0];
+            let target = pair[1];
+            if selected_edges.contains(&(
+                layer,
+                source.action.id.as_str(),
+                layer + 1,
+                target.action.id.as_str(),
+            )) && matches_filters(source, target, options, &mut discarded_reasons)
+                && metric_value(target, &options.metric, &mut discarded_reasons).is_some()
+            {
+                selected.insert(source.id.as_str());
+                selected.insert(target.id.as_str());
+            }
+        }
+    }
+    if graph.availability == GraphAvailability::InsufficientEvidence {
+        for evidence_id in graph
+            .nodes
+            .iter()
+            .flat_map(|node| &node.provenance)
+            .flat_map(|provenance| &provenance.evidence_ids)
+        {
+            if let Some(observation) = grouped
+                .values()
+                .flatten()
+                .find(|observation| observation.id == *evidence_id)
+            {
+                selected.insert(observation.id.as_str());
+            }
+        }
+    }
+    selected
+}
+
 fn validate_options(options: &ObservedFlowOptions) -> Result<(), FlowBuildError> {
     if options.max_nodes == 0
         || options.max_nodes > 10_000
@@ -552,7 +782,8 @@ fn insert_compact_identity(
 #[cfg(test)]
 mod tests {
     use harness_lens_core::{
-        ACTION_TRACE_SCHEMA_VERSION, EvidenceDescriptor, ObservedCost, RuntimeObservationStatus,
+        ACTION_TRACE_SCHEMA_VERSION, EvidenceDescriptor, ObservedCost, ObservedTokenUsage,
+        RuntimeObservationStatus,
     };
 
     use super::*;
@@ -580,6 +811,13 @@ mod tests {
             cost: Some(ObservedCost {
                 value: sequence as f64 / 100.0,
                 unit: "USD".to_owned(),
+                estimated: false,
+            }),
+            token_usage: Some(ObservedTokenUsage {
+                input_tokens: Some(sequence * 60),
+                output_tokens: Some(sequence * 40),
+                cached_input_tokens: Some(sequence * 10),
+                total_tokens: sequence * 100,
                 estimated: false,
             }),
             error_class: None,
@@ -711,6 +949,91 @@ mod tests {
                 .reasons
                 .iter()
                 .any(|reason| reason.code.starts_with("truncated_"))
+        );
+    }
+
+    #[test]
+    fn token_timeline_preserves_turn_order_cost_and_bounds() {
+        let projection =
+            build_observed_flow_projection(&trace(), &ObservedFlowOptions::default(), 3).unwrap();
+        assert_eq!(
+            projection.token_timeline.availability,
+            GraphAvailability::Ready
+        );
+        assert_eq!(projection.token_timeline.total_turns, 5);
+        assert_eq!(projection.token_timeline.sample_size, 3);
+        assert_eq!(projection.token_timeline.turns.len(), 3);
+        assert_eq!(projection.token_timeline.turns[0].id, "a1");
+        assert_eq!(
+            projection.token_timeline.turns[0]
+                .token_usage
+                .unwrap()
+                .total_tokens,
+            100
+        );
+        assert_eq!(
+            projection.token_timeline.turns[0]
+                .cost
+                .as_ref()
+                .map(|cost| cost.value),
+            Some(0.01)
+        );
+        assert!(
+            projection
+                .token_timeline
+                .completeness
+                .reasons
+                .iter()
+                .any(|reason| reason.code == "truncated_turns" && reason.count == Some(2))
+        );
+    }
+
+    #[test]
+    fn token_timeline_keeps_both_ends_of_selected_transitions() {
+        let mut options = ObservedFlowOptions::default();
+        options.categories.insert("validation".to_owned());
+        let projection = build_observed_flow_projection(&trace(), &options, 10).unwrap();
+
+        assert_eq!(projection.graph.edges.len(), 1);
+        assert_eq!(projection.token_timeline.total_turns, 2);
+        assert_eq!(
+            projection
+                .token_timeline
+                .turns
+                .iter()
+                .map(|turn| turn.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b1", "b2"]
+        );
+    }
+
+    #[test]
+    fn missing_token_usage_remains_unavailable_not_zero() {
+        let mut value = trace();
+        for observation in &mut value.observations {
+            observation.token_usage = None;
+        }
+        let projection =
+            build_observed_flow_projection(&value, &ObservedFlowOptions::default(), 10).unwrap();
+        assert_eq!(
+            projection.token_timeline.availability,
+            GraphAvailability::Unavailable
+        );
+        assert_eq!(projection.token_timeline.sample_size, 0);
+        assert!(
+            projection
+                .token_timeline
+                .turns
+                .iter()
+                .all(|turn| turn.token_usage.is_none())
+        );
+        assert!(
+            projection
+                .token_timeline
+                .completeness
+                .reasons
+                .iter()
+                .any(|reason| reason.code == "missing_token_usage" && reason.count == Some(5))
         );
     }
 }

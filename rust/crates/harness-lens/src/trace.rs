@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use harness_lens_core::{
     ACTION_TRACE_SCHEMA_VERSION, ActionIdentity, ActionObservation, ActionTrace,
     CompletenessReason, EvidenceCompleteness, EvidenceDescriptor, EvidenceLocation,
-    ObservationWindow, ObservedCost, RuntimeErrorClass, RuntimeObservationStatus, TextSpan,
+    ObservationWindow, ObservedCost, ObservedTokenUsage, RuntimeErrorClass,
+    RuntimeObservationStatus, TextSpan,
 };
 use serde::Deserialize;
 
@@ -72,6 +73,8 @@ pub enum RedactedTraceField {
     RetryCount,
     /// Attributed cost.
     Cost,
+    /// Per-turn token usage.
+    TokenUsage,
     /// Model identity.
     Model,
     /// Harness asset identity.
@@ -133,6 +136,22 @@ pub struct TraceCostInput {
     pub estimated: bool,
 }
 
+/// Content-safe token usage accepted at the SDK boundary.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TraceTokenUsageInput {
+    /// Prompt or input tokens, when supplied.
+    pub input_tokens: Option<u64>,
+    /// Completion or output tokens, when supplied.
+    pub output_tokens: Option<u64>,
+    /// Cached input tokens, when supplied.
+    pub cached_input_tokens: Option<u64>,
+    /// Total tokens attributed to this turn.
+    pub total_tokens: u64,
+    /// Whether any count was estimated by the source.
+    pub estimated: bool,
+}
+
 /// One possibly incomplete source observation.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -155,6 +174,8 @@ pub struct TraceObservationInput {
     pub retry_count: Option<u32>,
     /// Attributed cost, when available.
     pub cost: Option<TraceCostInput>,
+    /// Per-turn token usage, when available.
+    pub token_usage: Option<TraceTokenUsageInput>,
     /// Stable error class, when available.
     pub error_class: Option<RuntimeErrorClass>,
     /// Safe model identity, when available.
@@ -437,6 +458,17 @@ pub fn normalize_trace(
                 estimated: cost.estimated,
             })
         };
+        let token_usage = if redacted.contains(&RedactedTraceField::TokenUsage) {
+            None
+        } else {
+            observation.token_usage.map(|usage| ObservedTokenUsage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cached_input_tokens: usage.cached_input_tokens,
+                total_tokens: usage.total_tokens,
+                estimated: usage.estimated,
+            })
+        };
         let value = ActionObservation {
             id,
             session_id,
@@ -457,6 +489,7 @@ pub fn normalize_trace(
                 .then_some(observation.retry_count)
                 .flatten(),
             cost,
+            token_usage,
             error_class: observation.error_class,
             model: (!redacted.contains(&RedactedTraceField::Model))
                 .then_some(observation.model)
@@ -621,6 +654,13 @@ mod tests {
             duration_micros: None,
             retry_count: None,
             cost: None,
+            token_usage: Some(TraceTokenUsageInput {
+                input_tokens: Some(80),
+                output_tokens: Some(40),
+                cached_input_tokens: Some(20),
+                total_tokens: 120,
+                estimated: false,
+            }),
             error_class: None,
             model: None,
             asset_identity: None,
@@ -636,6 +676,13 @@ mod tests {
         assert_eq!(result.trace.observations[0].id, "first");
         assert_eq!(result.trace.observations[0].duration_micros, None);
         assert_eq!(result.trace.observations[0].retry_count, None);
+        assert_eq!(
+            result.trace.observations[0]
+                .token_usage
+                .as_ref()
+                .map(|usage| usage.total_tokens),
+            Some(120)
+        );
         assert_eq!(
             result.issues[0].code,
             TraceNormalizationIssueCode::ReorderedObservations
@@ -691,6 +738,30 @@ mod tests {
         assert_eq!(
             normalize_trace_json(value, 10),
             Err(TraceInputError::InvalidJson)
+        );
+    }
+
+    #[test]
+    fn invalid_token_usage_is_dropped_without_fabricating_zero() {
+        let mut value = input();
+        value.observations[0].token_usage = Some(TraceTokenUsageInput {
+            input_tokens: Some(100),
+            output_tokens: Some(50),
+            cached_input_tokens: Some(20),
+            total_tokens: 149,
+            estimated: false,
+        });
+
+        let result = normalize_trace(value, 10).unwrap();
+        assert_eq!(result.trace.observations.len(), 1);
+        assert_eq!(result.trace.observations[0].id, "first");
+        assert!(
+            result
+                .trace
+                .completeness
+                .reasons
+                .iter()
+                .any(|reason| { reason.code == "invalid_observation" && reason.count == Some(1) })
         );
     }
 
