@@ -20,11 +20,11 @@ pub use harness_lens_core::{
     GraphFilters, GraphKind, GraphLimits, GraphNode, GraphNodeKind, GraphProvenance,
     GraphRelationship, GraphValidationError, HarnessLensConfig, HarnessSource, HarnessSourceKind,
     IncompleteReason, IntegrationConfig, IntegrationError, Metric, ObservationWindow, ObservedCost,
-    Plugin, PluginConfig, PluginContext, PluginError, PluginExecution, PluginExecutionStatus,
-    PluginMetadata, PluginOutput, RELATIONSHIP_GRAPH_SCHEMA_VERSION, RegistrationError,
-    RelationshipGraph, ReportSink, RuntimeErrorClass, RuntimeMode, RuntimeObservationStatus,
-    ScanCompleteness, ScanSummary, Score, ScoreCategory, ScoreError, ScoreMethod, ScoreSummary,
-    Severity, SourceRecord, TextSpan, WeightedEdgeMetric, statistics,
+    ObservedTokenUsage, Plugin, PluginConfig, PluginContext, PluginError, PluginExecution,
+    PluginExecutionStatus, PluginMetadata, PluginOutput, RELATIONSHIP_GRAPH_SCHEMA_VERSION,
+    RegistrationError, RelationshipGraph, ReportSink, RuntimeErrorClass, RuntimeMode,
+    RuntimeObservationStatus, ScanCompleteness, ScanSummary, Score, ScoreCategory, ScoreError,
+    ScoreMethod, ScoreSummary, Severity, SourceRecord, TextSpan, WeightedEdgeMetric, statistics,
 };
 
 /// Published Harness Lens namespace-bootstrap version.
