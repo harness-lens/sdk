@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "window": { "start": "2026-09-13T00:00:00Z", "end": "2026-09-13T01:00:00Z" },
+  "complete": false,
+  "source_issues": ["dropped"],
+  "observations": [
+    { "id": "one", "session_id": "session-1", "sequence": 1, "action": { "id": "read", "label": "Read", "category": "tool" }, "status": "success" }
+  ],
+  "total_observations": 2,
+  "next_cursor": "page-2"
+}

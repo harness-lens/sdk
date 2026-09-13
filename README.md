@@ -41,6 +41,9 @@ Installation requires explicit confirmation of the exact generated plan and
 rechecks trust immediately before invoking fixed npm arguments without a shell.
 See [provider services](docs/provider-services.md).
 
+Sanitized local trace normalization and measured transition aggregation are
+documented in [observed flow](docs/observed-flow.md).
+
 ## Ecosystem
 
 - [Core](https://github.com/harness-lens/core)

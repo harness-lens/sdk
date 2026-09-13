@@ -4,7 +4,9 @@
 #![doc = include_str!("../README.md")]
 
 mod filesystem;
+pub mod observed_flow;
 pub mod providers;
+pub mod trace;
 
 pub use filesystem::{
     DiscoveryResult, ScanError, Scanner, discover, discover_detailed, is_harness_path,
@@ -12,12 +14,17 @@ pub use filesystem::{
 pub use harness_lens_config::{ConfigError, DEFAULT_CONFIG_FILE, load_for_root};
 pub use harness_lens_core::lexical;
 pub use harness_lens_core::{
-    AnalysisEngine, AnalysisReport, ConfidenceEstimate, DiscoveryConfig, EvaluationConfig, Finding,
-    FindingLocation, HarnessLensConfig, HarnessSource, HarnessSourceKind, IncompleteReason,
-    IntegrationConfig, IntegrationError, Metric, Plugin, PluginConfig, PluginContext, PluginError,
-    PluginExecution, PluginExecutionStatus, PluginMetadata, PluginOutput, RegistrationError,
-    ReportSink, RuntimeMode, ScanCompleteness, ScanSummary, Score, ScoreCategory, ScoreError,
-    ScoreMethod, ScoreSummary, Severity, SourceRecord, TextSpan, statistics,
+    ACTION_TRACE_SCHEMA_VERSION, ActionIdentity, ActionObservation, ActionTrace, AnalysisEngine,
+    AnalysisReport, CompletenessReason, ConfidenceEstimate, DiscoveryConfig, EvaluationConfig,
+    EvidenceCompleteness, EvidenceLocation, Finding, FindingLocation, GraphAvailability, GraphEdge,
+    GraphFilters, GraphKind, GraphLimits, GraphNode, GraphNodeKind, GraphProvenance,
+    GraphRelationship, GraphValidationError, HarnessLensConfig, HarnessSource, HarnessSourceKind,
+    IncompleteReason, IntegrationConfig, IntegrationError, Metric, ObservationWindow, ObservedCost,
+    Plugin, PluginConfig, PluginContext, PluginError, PluginExecution, PluginExecutionStatus,
+    PluginMetadata, PluginOutput, RELATIONSHIP_GRAPH_SCHEMA_VERSION, RegistrationError,
+    RelationshipGraph, ReportSink, RuntimeErrorClass, RuntimeMode, RuntimeObservationStatus,
+    ScanCompleteness, ScanSummary, Score, ScoreCategory, ScoreError, ScoreMethod, ScoreSummary,
+    Severity, SourceRecord, TextSpan, WeightedEdgeMetric, statistics,
 };
 
 /// Published Harness Lens namespace-bootstrap version.
