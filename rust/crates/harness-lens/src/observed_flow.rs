@@ -268,8 +268,12 @@ pub fn build_observed_flow(
 
     let availability = if !selected.is_empty() && denominator > 0.0 {
         GraphAvailability::Ready
-    } else if trace.observations.is_empty() && !trace.completeness.complete {
-        GraphAvailability::Unavailable
+    } else if trace.observations.is_empty() {
+        if trace.completeness.complete {
+            GraphAvailability::Empty
+        } else {
+            GraphAvailability::Unavailable
+        }
     } else if trace.observations.len() < 2 || (!samples.is_empty() && denominator == 0.0) {
         GraphAvailability::InsufficientEvidence
     } else {
@@ -666,6 +670,25 @@ mod tests {
                 .iter()
                 .any(|reason| reason.code == "missing_metric_value")
         );
+    }
+
+    #[test]
+    fn complete_empty_trace_is_distinct_from_missing_evidence() {
+        let mut complete = trace();
+        complete.observations.clear();
+        complete.total_observations = Some(0);
+        let graph = build_observed_flow(&complete, &ObservedFlowOptions::default()).unwrap();
+        assert_eq!(graph.availability, GraphAvailability::Empty);
+
+        complete.completeness = EvidenceCompleteness {
+            complete: false,
+            reasons: vec![CompletenessReason {
+                code: "source_incompatible".to_owned(),
+                count: Some(1),
+            }],
+        };
+        let graph = build_observed_flow(&complete, &ObservedFlowOptions::default()).unwrap();
+        assert_eq!(graph.availability, GraphAvailability::Unavailable);
     }
 
     #[test]
