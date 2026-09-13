@@ -26,6 +26,13 @@ the fixed Native and CodeBurn catalog plus local detection and installation
 boundaries. Optional processes stay off by default and cannot run for untrusted
 or virtual workspaces.
 
+`trace` parses a deny-by-default, content-safe action snapshot and normalizes
+missing, redacted, duplicate, unordered, partial, and bounded records without
+coercing unknown measurements to zero. `observed_flow` derives only original
+adjacent transitions. It applies deterministic filters, recalculates declared
+denominators, layers repeated logical actions to expose cycles, and emits the
+versioned Core relationship-graph contract.
+
 ## License
 
 Early namespace-reservation versions used BSD-3-Clause. The official functional
